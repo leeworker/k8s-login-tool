@@ -116,9 +116,9 @@ def print_table(headers, rows):
             if i == 0:  # 序号：蓝色，居中对齐
                 cells.append(f"{Colors.BLUE}{cell_str.center(widths[i])}{Colors.ENDC}")
             elif i == 1:  # NAMESPACE：绿色，左对齐
-                cells.append(f"{Colors.GREEN}{cell_str.ljust(widths[i])}{Colors.ENDC}")
+                cells.append(f"{Colors.GREEN}{cell_str.center(widths[i])}{Colors.ENDC}")
             elif i == 2:  # NAME：绿色，左对齐
-                cells.append(f"{Colors.GREEN}{cell_str.ljust(widths[i])}{Colors.ENDC}")
+                cells.append(f"{Colors.GREEN}{cell_str.center(widths[i])}{Colors.ENDC}")
             elif i == 4:  # STATUS：根据状态使用不同颜色
                 color = Colors.GREEN if cell_str == "Running" else Colors.WARNING
                 cells.append(f"{color}{cell_str.center(widths[i])}{Colors.ENDC}")
