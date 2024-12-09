@@ -32,7 +32,7 @@ class Colors:
 
 def setup_arguments():
     """解析命令行参数"""
-    parser = argparse.ArgumentParser(description='快速登录 Kubernetes Pod 工具, 作者: lixianzhu@baidu.com, 版本: 1.0.0 欢迎使用, 反馈Bug')
+    parser = argparse.ArgumentParser(description='快速登录 Kubernetes Pod 工具, 作者: lee_worker, 版本: 1.0.0 欢迎使用, 反馈Bug')
     parser.add_argument('pod_name', nargs='?', help='Pod 名称（可选）')
     parser.add_argument('namespace', nargs='?', help='命名空间（可选）')
     return parser.parse_args()
@@ -63,10 +63,12 @@ def parse_kubectl_output(line):
         
     namespace, name, ready, status, restarts, age, ip, node = match.groups()
     
-    # 处理重启次数，提取纯数字部分
-    if restarts:
-        restarts = restarts.split()[0]  # 只取第一个数字部分
-        
+    # # 处理重启次数，提取纯数字部分
+    # if restarts:
+    #     print(restarts)
+    #     restarts = restarts.split()[0]  # 只取第一个数字部分
+        # restarts = f"{restarts.split()[0]}-{restarts.split()[1]}" if restarts.split()[1] else f"{restarts.split()[0]}" 
+
     # 处理节点名称，只取第一个有效部分
     if node:
         node = node.split()[0]
@@ -85,7 +87,7 @@ def parse_kubectl_output(line):
     }
 
 def print_table(headers, rows):
-    """打印表格，带边框和分隔线，使用不同颜色区分不同类型的信息"""
+    """打印表格，带边框和分隔线，使用不同颜色区分状态"""
     # 计算每列的最大宽度
     widths = [len(h) for h in headers]
     for row in rows:
@@ -112,6 +114,18 @@ def print_table(headers, rows):
         cells = []
         for i, cell in enumerate(row):
             cell_str = str(cell)
+            if headers[i] == "READY":
+                # Ready 状态颜色处理
+                if '/' in cell_str:
+                    current, total = map(int, cell_str.split('/'))
+                    if current == total:
+                        cell_str = f"{Colors.GREEN}{cell_str.center(widths[i])}{Colors.ENDC}"
+                    elif current == 0:
+                        cell_str = f"{Colors.FAIL}{cell_str.center(widths[i])}{Colors.ENDC}"
+                    else:
+                        cell_str = f"{Colors.WARNING}{cell_str.center(widths[i])}{Colors.ENDC}"
+                else:
+                    cell_str = cell_str.center(widths[i])
             # 根据列的类型使用不同的颜色
             if i == 0:  # 序号：蓝色，居中对齐
                 cells.append(f"{Colors.BLUE}{cell_str.center(widths[i])}{Colors.ENDC}")
@@ -308,7 +322,7 @@ def login_pod(pod_name, namespace, container_name):
             has_shell = False
         
         if not has_shell:
-            print(f"{Colors.WARNING}警告: 这是一个精简容器，未找到标准的 shell{Colors.ENDC}")
+            print(f"{Colors.WARNING}警: ��是一个精简容器，未找到标准的 shell{Colors.ENDC}")
             print(f"{Colors.WARNING}尝试使用基本命令执行方式...{Colors.ENDC}")
             
             # 对于没有 shell 的容器，直接使用 kubectl exec
@@ -325,7 +339,7 @@ def login_pod(pod_name, namespace, container_name):
                 # 如果有入口点但不是 shell，使用入口点命令
                 kubectl_args.extend(entrypoint.split(',')[0].strip('"').split())
             else:
-                # 如果没有入口点，尝试常见的命令
+                # 如果没有口点，尝试常见的命令
                 common_commands = [
                     '/bin/sh',
                     '/bin/bash',
@@ -382,7 +396,7 @@ def login_pod(pod_name, namespace, container_name):
             "alias l='ls -l'"
         ] + welcome_msg
         
-        # 将配置转换为单行，并正确处理引号
+        # 将配置转换为单行，并理引号
         bash_config_str = ';'.join(bash_config).replace("'", "'\\''")
         
         # 构建 kubectl 命令参数列表
@@ -417,6 +431,74 @@ def check_kubectl():
         print(f"{Colors.GREEN}3. kubernetes 集群配置正确（~/.kube/config）{Colors.ENDC}")
         return False
 
+def show_operation_menu(pod_name, namespace, container_name):
+    """显示运维操作菜单"""
+    while True:
+        print(f"\n{Colors.HEADER}运维操作菜单:{Colors.ENDC}")
+        print(f"{Colors.BLUE}1. 重启容器{Colors.ENDC}")
+        print(f"{Colors.BLUE}2. 返回上级菜单{Colors.ENDC}")
+        
+        choice = input(f"\n{Colors.GREEN}请选择操作 (1-2): {Colors.ENDC}")
+        if choice == '1':
+            # 执行容器重启
+            confirm = input(f"{Colors.WARNING}确认要重启容器 {container_name} 吗？(y/n): {Colors.ENDC}")
+            if confirm.lower() == 'y':
+                print(f"\n{Colors.BLUE}开始重启容器...{Colors.ENDC}")
+                
+                # 使用多个命令分别执行，避免复杂的shell脚本
+                try:
+                    # 1. 获取子进程列表
+                    cmd = f"kubectl exec {pod_name} -n {namespace} -c {container_name} -- ps -eo pid,ppid | awk '$2==1 && $1!=1 {{print $1}}'"
+                    child_pids = subprocess.check_output(cmd, shell=True).decode().strip().split()
+                    
+                    # 2. 逐个终止子进程
+                    for pid in child_pids:
+                        print(f"{Colors.BLUE}终止子进程: {pid}{Colors.ENDC}")
+                        cmd = f"kubectl exec {pod_name} -n {namespace} -c {container_name} -- kill -15 {pid}"
+                        subprocess.call(cmd, shell=True)
+                    
+                    # 3. 等待子进程终止
+                    print(f"{Colors.BLUE}等待子进程终止...{Colors.ENDC}")
+                    subprocess.call(f"sleep 2", shell=True)
+                    
+                    # 4. 终止1号进程
+                    print(f"{Colors.BLUE}终止1号进程...{Colors.ENDC}")
+                    cmd = f"kubectl exec {pod_name} -n {namespace} -c {container_name} -- kill -15 1"
+                    subprocess.call(cmd, shell=True)
+                    
+                    print(f"{Colors.GREEN}容器重启命令已执行{Colors.ENDC}")
+                except Exception as e:
+                    print(f"{Colors.FAIL}容器重启命令执行失败: {e}{Colors.ENDC}")
+                    print(f"{Colors.FAIL}请检查容器状态{Colors.ENDC}")
+                continue  # 继续显示运维菜单
+        elif choice == '2':
+            return  # 返回上级菜单
+        else:
+            print(f"{Colors.FAIL}无效的选择，请重试{Colors.ENDC}")
+
+def show_main_menu(pod_name, namespace, container_name):
+    """显示主菜单"""
+    while True:
+        print(f"\n{Colors.HEADER}请选择操作类型:{Colors.ENDC}")
+        print(f"{Colors.BLUE}1. 进入容器{Colors.ENDC}")
+        print(f"{Colors.BLUE}2. 运维操作{Colors.ENDC}")
+        print(f"{Colors.BLUE}3. 退出{Colors.ENDC}")
+        
+        choice = input(f"\n{Colors.GREEN}请选择操作 (1-3): {Colors.ENDC}")
+        if choice == '1':
+            # 进入容器
+            login_pod(pod_name, namespace, container_name)
+            break
+        elif choice == '2':
+            # 运维操作
+            show_operation_menu(pod_name, namespace, container_name)
+            continue  # 返回主菜单
+        elif choice == '3':
+            print(f"\n{Colors.GREEN}退出程序{Colors.ENDC}")
+            sys.exit(0)
+        else:
+            print(f"{Colors.FAIL}无效的选择，请重试{Colors.ENDC}")
+
 def main():
     """主函数"""
     # 首先检查kubectl
@@ -434,8 +516,8 @@ def main():
     container_name = get_container_name(full_pod_name, namespace)
     print(f"{Colors.BOLD}选择的容器: {Colors.GREEN}{container_name}{Colors.ENDC}\n")
     
-    # 登录到 Pod
-    login_pod(full_pod_name, namespace, container_name)
+    # 显示主菜单
+    show_main_menu(full_pod_name, namespace, container_name)
 
 if __name__ == "__main__":
-    main() 
+    main()
